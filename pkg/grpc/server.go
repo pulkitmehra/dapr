@@ -18,6 +18,7 @@ import (
 	dapr_pb "github.com/dapr/dapr/pkg/proto/dapr"
 	daprinternal_pb "github.com/dapr/dapr/pkg/proto/daprinternal"
 	auth "github.com/dapr/dapr/pkg/runtime/security"
+	"google.golang.org/grpc"
 	grpc_go "google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -48,7 +49,10 @@ type server struct {
 	tlsCert            tls.Certificate
 	signedCertDuration time.Duration
 	kind               string
+	serverHooks        []ServerHook
 }
+
+type ServerHook func(s *grpc.Server) error
 
 // NewAPIServer returns a new user facing gRPC API server
 func NewAPIServer(api API, config ServerConfig, tracingSpec config.TracingSpec) Server {
@@ -61,7 +65,7 @@ func NewAPIServer(api API, config ServerConfig, tracingSpec config.TracingSpec) 
 }
 
 // NewInternalServer returns a new gRPC server for Dapr to Dapr communications
-func NewInternalServer(api API, config ServerConfig, tracingSpec config.TracingSpec, authenticator auth.Authenticator) Server {
+func NewInternalServer(api API, config ServerConfig, tracingSpec config.TracingSpec, authenticator auth.Authenticator, hooks ...ServerHook) Server {
 	return &server{
 		api:           api,
 		config:        config,
@@ -69,6 +73,7 @@ func NewInternalServer(api API, config ServerConfig, tracingSpec config.TracingS
 		authenticator: authenticator,
 		renewMutex:    &sync.Mutex{},
 		kind:          internalServer,
+		serverHooks:   hooks,
 	}
 }
 
@@ -90,6 +95,11 @@ func (s *server) StartNonBlocking() error {
 		daprinternal_pb.RegisterDaprInternalServer(server, s.api)
 	} else if s.kind == apiServer {
 		dapr_pb.RegisterDaprServer(server, s.api)
+	}
+	for _, hook := range s.serverHooks {
+		if err := hook(server); err != nil {
+			return err
+		}
 	}
 	go func() {
 		if err := server.Serve(lis); err != nil {

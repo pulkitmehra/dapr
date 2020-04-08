@@ -96,6 +96,7 @@ type DaprRuntime struct {
 	allowedTopics            []string
 	daprHTTPAPI              http.API
 	operatorClient           operator.OperatorClient
+	grpcServerHooks          []grpc.ServerHook
 }
 
 // NewDaprRuntime returns a new runtime with the given runtime config and global config
@@ -116,6 +117,7 @@ func NewDaprRuntime(runtimeConfig *Config, globalConfig *config.Configuration) *
 		exporterRegistry:         exporter_loader.NewRegistry(),
 		serviceDiscoveryRegistry: servicediscovery_loader.NewRegistry(),
 		httpMiddlewareRegistry:   http_middleware_loader.NewRegistry(),
+		grpcServerHooks:          make([]grpc.ServerHook, 0, 5),
 	}
 }
 
@@ -254,7 +256,7 @@ func (a *DaprRuntime) initRuntime(opts *runtimeOpts) error {
 	}
 	log.Infof("API gRPC server is running on port %v", a.runtimeConfig.APIGRPCPort)
 
-	err = a.startGRPCInternalServer(grpcAPI, a.runtimeConfig.InternalGRPCPort)
+	err = a.startGRPCInternalServer(grpcAPI, a.runtimeConfig.InternalGRPCPort, opts.serverHooks...)
 	if err != nil {
 		log.Fatalf("failed to start internal gRPC server: %s", err)
 	}
@@ -569,9 +571,9 @@ func (a *DaprRuntime) startHTTPServer(port, profilePort int, allowedOrigins stri
 	server.StartNonBlocking()
 }
 
-func (a *DaprRuntime) startGRPCInternalServer(api grpc.API, port int) error {
+func (a *DaprRuntime) startGRPCInternalServer(api grpc.API, port int, hooks ...grpc.ServerHook) error {
 	serverConf := grpc.NewServerConfig(a.runtimeConfig.ID, a.hostAddress, port)
-	server := grpc.NewInternalServer(api, serverConf, a.globalConfig.Spec.TracingSpec, a.authenticator)
+	server := grpc.NewInternalServer(api, serverConf, a.globalConfig.Spec.TracingSpec, a.authenticator, hooks...)
 	err := server.StartNonBlocking()
 	return err
 }
