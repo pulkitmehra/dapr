@@ -2,13 +2,13 @@ package runtime
 
 import (
 	"github.com/dapr/dapr/pkg/components/bindings"
+	"github.com/dapr/dapr/pkg/components/custom"
 	"github.com/dapr/dapr/pkg/components/exporters"
 	"github.com/dapr/dapr/pkg/components/middleware/http"
 	"github.com/dapr/dapr/pkg/components/pubsub"
 	"github.com/dapr/dapr/pkg/components/secretstores"
 	"github.com/dapr/dapr/pkg/components/servicediscovery"
 	"github.com/dapr/dapr/pkg/components/state"
-	"github.com/dapr/dapr/pkg/grpc"
 )
 
 type (
@@ -22,7 +22,7 @@ type (
 		inputBindings    []bindings.InputBinding
 		outputBindings   []bindings.OutputBinding
 		httpMiddleware   []http.Middleware
-		serverHooks      []grpc.ServerHook
+		customComponents []custom.Custom
 	}
 
 	// Option is a function that customizes the runtime.
@@ -82,5 +82,12 @@ func WithOutputBindings(outputBindings ...bindings.OutputBinding) Option {
 func WithHTTPMiddleware(httpMiddleware ...http.Middleware) Option {
 	return func(o *runtimeOpts) {
 		o.httpMiddleware = append(o.httpMiddleware, httpMiddleware...)
+	}
+}
+
+// WithCustomComponents adds ---
+func WithCustomComponents(customComonents ...custom.Custom) Option {
+	return func(o *runtimeOpts) {
+		o.customComponents = append(o.customComponents, customComonents...)
 	}
 }

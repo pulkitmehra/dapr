@@ -30,6 +30,7 @@ import (
 	http_channel "github.com/dapr/dapr/pkg/channel/http"
 	"github.com/dapr/dapr/pkg/components"
 	bindings_loader "github.com/dapr/dapr/pkg/components/bindings"
+	custom_loader "github.com/dapr/dapr/pkg/components/custom"
 	exporter_loader "github.com/dapr/dapr/pkg/components/exporters"
 	http_middleware_loader "github.com/dapr/dapr/pkg/components/middleware/http"
 	pubsub_loader "github.com/dapr/dapr/pkg/components/pubsub"
@@ -80,9 +81,11 @@ type DaprRuntime struct {
 	stateStores              map[string]state.Store
 	actor                    actors.Actors
 	bindingsRegistry         bindings_loader.Registry
+	customComponentRegistry  custom_loader.Registry
 	inputBindings            map[string]bindings.InputBinding
 	outputBindings           map[string]bindings.OutputBinding
 	secretStores             map[string]secretstores.SecretStore
+	customComponents         map[string]custom_loader.CustomComponent
 	pubSubRegistry           pubsub_loader.Registry
 	pubSub                   pubsub.PubSub
 	servicediscoveryResolver servicediscovery.Resolver
@@ -97,7 +100,6 @@ type DaprRuntime struct {
 	allowedTopics            []string
 	daprHTTPAPI              http.API
 	operatorClient           operator.OperatorClient
-	// TODO customComponetRegistry
 }
 
 // NewDaprRuntime returns a new runtime with the given runtime config and global config
@@ -112,13 +114,13 @@ func NewDaprRuntime(runtimeConfig *Config, globalConfig *config.Configuration) *
 		secretStores:             map[string]secretstores.SecretStore{},
 		stateStores:              map[string]state.Store{},
 		stateStoreRegistry:       state_loader.NewRegistry(),
+		customComponentRegistry:  custom_loader.NewRegistry(),
 		bindingsRegistry:         bindings_loader.NewRegistry(),
 		pubSubRegistry:           pubsub_loader.NewRegistry(),
 		secretStoresRegistry:     secretstores_loader.NewRegistry(),
 		exporterRegistry:         exporter_loader.NewRegistry(),
 		serviceDiscoveryRegistry: servicediscovery_loader.NewRegistry(),
 		httpMiddlewareRegistry:   http_middleware_loader.NewRegistry(),
-		// TODO customComponetRegistry
 	}
 }
 
@@ -236,6 +238,9 @@ func (a *DaprRuntime) initRuntime(opts *runtimeOpts) error {
 	a.bindingsRegistry.RegisterOutputBindings(opts.outputBindings...)
 	a.initBindings()
 	a.initDirectMessaging(a.servicediscoveryResolver)
+
+	//Register custom components, initialization is performed by the Grpc initialization
+	a.customComponentRegistry.Register(opts.customComponents...)
 
 	err = a.initActors()
 	if err != nil {
@@ -1288,7 +1293,38 @@ func (a *DaprRuntime) initSecretStores() error {
 }
 
 func (a *DaprRuntime) initCustomComponents(server *grpc_go.Server) error {
-	// TODO
+	for _, c := range a.components {
+		if strings.Index(c.Spec.Type, "custom") == 0 {
+
+			comp, err := a.customComponentRegistry.CreateCustomComponent(c.GetName())
+			if err != nil {
+				return err
+			}
+			if comp == nil {
+				continue
+			}
+			err = comp.Init(custom_loader.Metadata{
+				Properties: a.convertMetadataItemsToProperties(c.Spec.Metadata),
+				Name:       c.GetName(),
+			})
+			if err != nil {
+				log.Errorf("failed to init custom component %s (%s): %s", c.ObjectMeta.Name, c.Spec.Type, err)
+				diag.DefaultMonitoring.ComponentInitFailed(c.Spec.Type, "init")
+				continue
+			}
+			log.Infof("successful init for custom component %s (%s)", c.ObjectMeta.Name, c.Spec.Type)
+
+			err = comp.RegisterServer(server)
+			if err != nil {
+				log.Errorf("failed to register custom component %s (%s)", c.ObjectMeta.Name, c.Spec.Type)
+				diag.DefaultMonitoring.ComponentInitFailed(c.Spec.Type, "init")
+				return err
+			}
+
+			a.customComponents[c.ObjectMeta.Name] = comp
+			diag.DefaultMonitoring.ComponentInitialized(c.Spec.Type)
+		}
+	}
 	return nil
 }
 
