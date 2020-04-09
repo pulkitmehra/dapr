@@ -53,6 +53,7 @@ import (
 	"github.com/golang/protobuf/ptypes/any"
 	"github.com/golang/protobuf/ptypes/empty"
 	jsoniter "github.com/json-iterator/go"
+	grpc_go "google.golang.org/grpc"
 )
 
 const (
@@ -96,7 +97,7 @@ type DaprRuntime struct {
 	allowedTopics            []string
 	daprHTTPAPI              http.API
 	operatorClient           operator.OperatorClient
-	grpcServerHooks          []grpc.ServerHook
+	// TODO customComponetRegistry
 }
 
 // NewDaprRuntime returns a new runtime with the given runtime config and global config
@@ -117,7 +118,7 @@ func NewDaprRuntime(runtimeConfig *Config, globalConfig *config.Configuration) *
 		exporterRegistry:         exporter_loader.NewRegistry(),
 		serviceDiscoveryRegistry: servicediscovery_loader.NewRegistry(),
 		httpMiddlewareRegistry:   http_middleware_loader.NewRegistry(),
-		grpcServerHooks:          make([]grpc.ServerHook, 0, 5),
+		// TODO customComponetRegistry
 	}
 }
 
@@ -256,7 +257,7 @@ func (a *DaprRuntime) initRuntime(opts *runtimeOpts) error {
 	}
 	log.Infof("API gRPC server is running on port %v", a.runtimeConfig.APIGRPCPort)
 
-	err = a.startGRPCInternalServer(grpcAPI, a.runtimeConfig.InternalGRPCPort, opts.serverHooks...)
+	err = a.startGRPCInternalServer(grpcAPI, a.runtimeConfig.InternalGRPCPort)
 	if err != nil {
 		log.Fatalf("failed to start internal gRPC server: %s", err)
 	}
@@ -571,9 +572,9 @@ func (a *DaprRuntime) startHTTPServer(port, profilePort int, allowedOrigins stri
 	server.StartNonBlocking()
 }
 
-func (a *DaprRuntime) startGRPCInternalServer(api grpc.API, port int, hooks ...grpc.ServerHook) error {
+func (a *DaprRuntime) startGRPCInternalServer(api grpc.API, port int) error {
 	serverConf := grpc.NewServerConfig(a.runtimeConfig.ID, a.hostAddress, port)
-	server := grpc.NewInternalServer(api, serverConf, a.globalConfig.Spec.TracingSpec, a.authenticator, hooks...)
+	server := grpc.NewInternalServer(api, serverConf, a.globalConfig.Spec.TracingSpec, a.authenticator, a.initCustomComponents)
 	err := server.StartNonBlocking()
 	return err
 }
@@ -1283,6 +1284,11 @@ func (a *DaprRuntime) initSecretStores() error {
 		diag.DefaultMonitoring.ComponentInitialized(c.Spec.Type)
 	}
 
+	return nil
+}
+
+func (a *DaprRuntime) initCustomComponents(server *grpc_go.Server) error {
+	// TODO
 	return nil
 }
 

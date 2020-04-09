@@ -18,7 +18,6 @@ import (
 	dapr_pb "github.com/dapr/dapr/pkg/proto/dapr"
 	daprinternal_pb "github.com/dapr/dapr/pkg/proto/daprinternal"
 	auth "github.com/dapr/dapr/pkg/runtime/security"
-	"google.golang.org/grpc"
 	grpc_go "google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -52,7 +51,7 @@ type server struct {
 	serverHooks        []ServerHook
 }
 
-type ServerHook func(s *grpc.Server) error
+type ServerHook func(s *grpc_go.Server) error
 
 // NewAPIServer returns a new user facing gRPC API server
 func NewAPIServer(api API, config ServerConfig, tracingSpec config.TracingSpec) Server {
