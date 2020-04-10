@@ -580,14 +580,14 @@ func (a *DaprRuntime) startHTTPServer(port, profilePort int, allowedOrigins stri
 
 func (a *DaprRuntime) startGRPCInternalServer(api grpc.API, port int) error {
 	serverConf := grpc.NewServerConfig(a.runtimeConfig.ID, a.hostAddress, port)
-	server := grpc.NewInternalServer(api, serverConf, a.globalConfig.Spec.TracingSpec, a.authenticator, a.initCustomComponents)
+	server := grpc.NewInternalServer(api, serverConf, a.globalConfig.Spec.TracingSpec, a.authenticator)
 	err := server.StartNonBlocking()
 	return err
 }
 
 func (a *DaprRuntime) startGRPCAPIServer(api grpc.API, port int) error {
 	serverConf := grpc.NewServerConfig(a.runtimeConfig.ID, a.hostAddress, port)
-	server := grpc.NewAPIServer(api, serverConf, a.globalConfig.Spec.TracingSpec)
+	server := grpc.NewAPIServer(api, serverConf, a.globalConfig.Spec.TracingSpec, a.initCustomComponents)
 	err := server.StartNonBlocking()
 	return err
 }
@@ -1296,7 +1296,7 @@ func (a *DaprRuntime) initSecretStores() error {
 func (a *DaprRuntime) initCustomComponents(server *grpc_go.Server) error {
 	for _, c := range a.components {
 		if strings.Index(c.Spec.Type, "custom") == 0 {
-			comp, err := a.customComponentRegistry.CreateCustomComponent(c.GetName())
+			comp, err := a.customComponentRegistry.CreateCustomComponent(c.Spec.Type)
 			if err != nil {
 				return err
 			}
@@ -1312,13 +1312,14 @@ func (a *DaprRuntime) initCustomComponents(server *grpc_go.Server) error {
 				diag.DefaultMonitoring.ComponentInitFailed(c.Spec.Type, "init")
 				continue
 			}
-			log.Infof("successful init for custom component %s (%s)", c.ObjectMeta.Name, c.Spec.Type)
 			err = comp.RegisterServer(server)
 			if err != nil {
 				log.Errorf("failed to register custom component %s (%s)", c.ObjectMeta.Name, c.Spec.Type)
 				diag.DefaultMonitoring.ComponentInitFailed(c.Spec.Type, "init")
 				return err
 			}
+			log.Infof("successful init and registeration of custom component %s (%s)", c.ObjectMeta.Name, c.Spec.Type)
+
 			a.customComponents[c.ObjectMeta.Name] = comp
 			diag.DefaultMonitoring.ComponentInitialized(c.Spec.Type)
 		}

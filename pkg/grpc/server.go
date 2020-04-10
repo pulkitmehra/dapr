@@ -54,17 +54,18 @@ type server struct {
 type ServerHook func(s *grpc_go.Server) error
 
 // NewAPIServer returns a new user facing gRPC API server
-func NewAPIServer(api API, config ServerConfig, tracingSpec config.TracingSpec) Server {
+func NewAPIServer(api API, config ServerConfig, tracingSpec config.TracingSpec, hooks ...ServerHook) Server {
 	return &server{
 		api:         api,
 		config:      config,
 		tracingSpec: tracingSpec,
 		kind:        apiServer,
+		serverHooks: hooks,
 	}
 }
 
 // NewInternalServer returns a new gRPC server for Dapr to Dapr communications
-func NewInternalServer(api API, config ServerConfig, tracingSpec config.TracingSpec, authenticator auth.Authenticator, hooks ...ServerHook) Server {
+func NewInternalServer(api API, config ServerConfig, tracingSpec config.TracingSpec, authenticator auth.Authenticator) Server {
 	return &server{
 		api:           api,
 		config:        config,
@@ -72,7 +73,6 @@ func NewInternalServer(api API, config ServerConfig, tracingSpec config.TracingS
 		authenticator: authenticator,
 		renewMutex:    &sync.Mutex{},
 		kind:          internalServer,
-		serverHooks:   hooks,
 	}
 }
 
