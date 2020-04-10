@@ -85,7 +85,7 @@ func WithHTTPMiddleware(httpMiddleware ...http.Middleware) Option {
 	}
 }
 
-// WithCustomComponents adds ---
+// WithCustomComponents add Custom gRPC endpoint to the runtime.
 func WithCustomComponents(customComonents ...custom.Custom) Option {
 	return func(o *runtimeOpts) {
 		o.customComponents = append(o.customComponents, customComonents...)

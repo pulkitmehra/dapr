@@ -11,23 +11,38 @@ import (
 	grpc_go "google.golang.org/grpc"
 )
 
-//Metadata
-type Metadata struct {
-	Properties map[string]string `json:"properties"`
-	Name       string            `json:"name"`
-}
+type (
+	//Metadata for custom component
+	Metadata struct {
+		Properties map[string]string `json:"properties"`
+		Name       string            `json:"name"`
+	}
 
-// CustomComponent component
-type CustomComponent interface {
-	Init(metadata Metadata) error
-	RegisterServer(s *grpc_go.Server) error
-}
+	// CustomComponent to register a custom gRPC endpoint
+	CustomComponent interface {
+		Init(metadata Metadata) error
+		RegisterServer(s *grpc_go.Server) error
+	}
 
-type Custom struct {
-	Name          string
-	FactoryMethod func() CustomComponent
-}
+	//Custom encapsulates a factory of custom component
+	Custom struct {
+		Name          string
+		FactoryMethod func() CustomComponent
+	}
 
+	// Registry is an interface for a component that returns registered custom implementations
+	Registry interface {
+		Register(components ...Custom)
+		CreateCustomComponent(name string) (CustomComponent, error)
+	}
+
+	//customRegistry implementation of Registry
+	customRegistry struct {
+		customComponents map[string]func() CustomComponent
+	}
+)
+
+//New creates a custom factory
 func New(name string, factoryMethod func() CustomComponent) Custom {
 	return Custom{
 		Name:          name,
@@ -35,20 +50,10 @@ func New(name string, factoryMethod func() CustomComponent) Custom {
 	}
 }
 
-// Registry is an interface for a component that returns registered state store implementations
-type Registry interface {
-	Register(components ...Custom)
-	CreateCustomComponent(name string) (CustomComponent, error)
-}
-
-type customRegistry struct {
-	customMap map[string]func() CustomComponent
-}
-
 // NewRegistry is used to create state store registry.
 func NewRegistry() Registry {
 	return &customRegistry{
-		customMap: map[string]func() CustomComponent{},
+		customComponents: map[string]func() CustomComponent{},
 	}
 }
 
@@ -56,17 +61,17 @@ func NewRegistry() Registry {
 // // The key is the name of the state store, eg. redis.
 func (s *customRegistry) Register(components ...Custom) {
 	for _, component := range components {
-		s.customMap[createFullName(component.Name)] = component.FactoryMethod
+		s.customComponents[createFullName(component.Name)] = component.FactoryMethod
 	}
 }
 
 func (s *customRegistry) CreateCustomComponent(name string) (CustomComponent, error) {
-	if method, ok := s.customMap[name]; ok {
+	if method, ok := s.customComponents[name]; ok {
 		return method(), nil
 	}
-	return nil, fmt.Errorf("couldn't find state store %s", name)
+	return nil, fmt.Errorf("couldn't find custom component %s", name)
 }
 
 func createFullName(name string) string {
-	return fmt.Sprintf("state.%s", name)
+	return fmt.Sprintf("custom.%s", name)
 }

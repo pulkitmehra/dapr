@@ -113,6 +113,7 @@ func NewDaprRuntime(runtimeConfig *Config, globalConfig *config.Configuration) *
 		outputBindings:           map[string]bindings.OutputBinding{},
 		secretStores:             map[string]secretstores.SecretStore{},
 		stateStores:              map[string]state.Store{},
+		customComponents:         map[string]custom_loader.CustomComponent{},
 		stateStoreRegistry:       state_loader.NewRegistry(),
 		customComponentRegistry:  custom_loader.NewRegistry(),
 		bindingsRegistry:         bindings_loader.NewRegistry(),
@@ -239,7 +240,7 @@ func (a *DaprRuntime) initRuntime(opts *runtimeOpts) error {
 	a.initBindings()
 	a.initDirectMessaging(a.servicediscoveryResolver)
 
-	//Register custom components, initialization is performed by the Grpc initialization
+	//Register custom components, initialization is performed by the Grpc Server
 	a.customComponentRegistry.Register(opts.customComponents...)
 
 	err = a.initActors()
@@ -1295,7 +1296,6 @@ func (a *DaprRuntime) initSecretStores() error {
 func (a *DaprRuntime) initCustomComponents(server *grpc_go.Server) error {
 	for _, c := range a.components {
 		if strings.Index(c.Spec.Type, "custom") == 0 {
-
 			comp, err := a.customComponentRegistry.CreateCustomComponent(c.GetName())
 			if err != nil {
 				return err
@@ -1313,14 +1313,12 @@ func (a *DaprRuntime) initCustomComponents(server *grpc_go.Server) error {
 				continue
 			}
 			log.Infof("successful init for custom component %s (%s)", c.ObjectMeta.Name, c.Spec.Type)
-
 			err = comp.RegisterServer(server)
 			if err != nil {
 				log.Errorf("failed to register custom component %s (%s)", c.ObjectMeta.Name, c.Spec.Type)
 				diag.DefaultMonitoring.ComponentInitFailed(c.Spec.Type, "init")
 				return err
 			}
-
 			a.customComponents[c.ObjectMeta.Name] = comp
 			diag.DefaultMonitoring.ComponentInitialized(c.Spec.Type)
 		}
