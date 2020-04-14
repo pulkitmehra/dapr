@@ -24,7 +24,7 @@ type (
 		RegisterServer(s *grpc_go.Server) error
 	}
 
-	//Custom encapsulates a factory of custom component
+	//Custom encapsulates a factory of custom components
 	Custom struct {
 		Name          string
 		FactoryMethod func() CustomComponent
@@ -42,7 +42,7 @@ type (
 	}
 )
 
-//New creates a custom factory
+//New creates a custom components factory
 func New(name string, factoryMethod func() CustomComponent) Custom {
 	return Custom{
 		Name:          name,
@@ -57,14 +57,15 @@ func NewRegistry() Registry {
 	}
 }
 
-// // Register registers a new factory method that creates an instance of a StateStore.
-// // The key is the name of the state store, eg. redis.
+//Register registers a new factory method that creates an instance of a Custom.
+//The key is the name of the custom component, eg. custom.somefunc
 func (s *customRegistry) Register(components ...Custom) {
 	for _, component := range components {
 		s.customComponents[createFullName(component.Name)] = component.FactoryMethod
 	}
 }
 
+// Create instantiates an custom component based on `name`.
 func (s *customRegistry) CreateCustomComponent(name string) (CustomComponent, error) {
 	if method, ok := s.customComponents[name]; ok {
 		return method(), nil

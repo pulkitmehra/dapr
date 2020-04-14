@@ -18,6 +18,7 @@ import (
 	"github.com/dapr/dapr/pkg/channel"
 	http_channel "github.com/dapr/dapr/pkg/channel/http"
 	channelt "github.com/dapr/dapr/pkg/channel/testing"
+	custom_loader "github.com/dapr/dapr/pkg/components/custom"
 	pubsub_loader "github.com/dapr/dapr/pkg/components/pubsub"
 	secretstores_loader "github.com/dapr/dapr/pkg/components/secretstores"
 	"github.com/dapr/dapr/pkg/config"
@@ -29,6 +30,7 @@ import (
 	daprt "github.com/dapr/dapr/pkg/testing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	grpc_go "google.golang.org/grpc"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -968,6 +970,67 @@ func TestAuthorizedComponents(t *testing.T) {
 	})
 }
 
+func TestInitCustomComponent(t *testing.T) {
+	t.Run("init with no custom component", func(t *testing.T) {
+		rt := NewTestDaprRuntime(modes.StandaloneMode)
+		server := grpc_go.NewServer()
+		err := rt.initCustomComponents(server)
+		assert.Nil(t, err)
+	})
+
+	t.Run("custom component is registered", func(t *testing.T) {
+		rt := NewTestDaprRuntime(modes.StandaloneMode)
+		mockComponent := &mockcustom{}
+		server := grpc_go.NewServer()
+
+		//register a custom component
+		rt.customComponentRegistry.Register(
+			custom_loader.New("encryptdecrypt", func() custom_loader.CustomComponent {
+				return mockComponent
+			}),
+		)
+
+		//add component type
+		rt.components = append(rt.components, components_v1alpha1.Component{
+			ObjectMeta: meta_v1.ObjectMeta{
+				Name: "EncryptDecryptCusomGrpcEndpoint",
+			},
+			Spec: components_v1alpha1.ComponentSpec{
+				Type: "custom.encryptdecrypt",
+				Metadata: []components_v1alpha1.MetadataItem{
+					{Name: "salt", Value: "random"},
+					{Name: "pwd", Value: "s3cret"},
+					{Name: "key", Value: "secure"},
+				},
+			},
+		})
+
+		//expected metadata
+		expectedMetadata := custom_loader.Metadata{
+			Properties: map[string]string{
+				"salt": "random",
+				"pwd":  "s3cret",
+				"key":  "secure",
+			},
+			Name: "EncryptDecryptCusomGrpcEndpoint",
+		}
+
+		//mock
+		mockComponent.On("Init", expectedMetadata).Return(nil)
+		mockComponent.On("RegisterServer", mock.Anything).Return(nil)
+
+		//call
+		err := rt.initCustomComponents(server)
+
+		//assertions
+		assert.Nil(t, err)
+		assert.NotNil(t, rt.customComponents["EncryptDecryptCusomGrpcEndpoint"])
+		mockComponent.AssertNumberOfCalls(t, "Init", 1)
+		mockComponent.AssertNumberOfCalls(t, "RegisterServer", 1)
+	})
+
+}
+
 type mockPublishPubSub struct {
 }
 
@@ -984,4 +1047,21 @@ func (m *mockPublishPubSub) Publish(req *pubsub.PublishRequest) error {
 // Subscribe is a mock subscribe method
 func (m *mockPublishPubSub) Subscribe(req pubsub.SubscribeRequest, handler func(msg *pubsub.NewMessage) error) error {
 	return nil
+}
+
+//custom mock object
+type mockcustom struct {
+	mock.Mock
+}
+
+// Init is a mock initialization method
+func (m *mockcustom) Init(metadata custom_loader.Metadata) error {
+	args := m.Called(metadata)
+	return args.Error(0)
+}
+
+//RegisterServer add service to gRPC server
+func (m *mockcustom) RegisterServer(s *grpc_go.Server) error {
+	args := m.Called(s)
+	return args.Error(0)
 }
