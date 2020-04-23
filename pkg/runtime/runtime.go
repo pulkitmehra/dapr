@@ -47,7 +47,9 @@ import (
 	http_middleware "github.com/dapr/dapr/pkg/middleware/http"
 	"github.com/dapr/dapr/pkg/modes"
 	"github.com/dapr/dapr/pkg/operator/client"
+	dapr_pb "github.com/dapr/dapr/pkg/proto/dapr"
 	daprclient_pb "github.com/dapr/dapr/pkg/proto/daprclient"
+	daprinternal_pb "github.com/dapr/dapr/pkg/proto/daprinternal"
 	"github.com/dapr/dapr/pkg/proto/operator"
 	"github.com/dapr/dapr/pkg/runtime/security"
 	"github.com/dapr/dapr/pkg/scopes"
@@ -580,14 +582,20 @@ func (a *DaprRuntime) startHTTPServer(port, profilePort int, allowedOrigins stri
 
 func (a *DaprRuntime) startGRPCInternalServer(api grpc.API, port int) error {
 	serverConf := grpc.NewServerConfig(a.runtimeConfig.ID, a.hostAddress, port)
-	server := grpc.NewInternalServer(api, serverConf, a.globalConfig.Spec.TracingSpec, a.authenticator)
+	server := grpc.NewServer(grpc.InternalServerLogger, func(server *grpc_go.Server) error {
+		daprinternal_pb.RegisterDaprInternalServer(server, api)
+		return nil
+	}, serverConf, a.globalConfig.Spec.TracingSpec, a.authenticator)
 	err := server.StartNonBlocking()
 	return err
 }
 
 func (a *DaprRuntime) startGRPCAPIServer(api grpc.API, port int) error {
 	serverConf := grpc.NewServerConfig(a.runtimeConfig.ID, a.hostAddress, port)
-	server := grpc.NewAPIServer(api, serverConf, a.globalConfig.Spec.TracingSpec, a.initCustomComponents)
+	server := grpc.NewServer(grpc.APIServerLogger, func(server *grpc_go.Server) error {
+		dapr_pb.RegisterDaprServer(server, api)
+		return a.initCustomComponents(server)
+	}, serverConf, a.globalConfig.Spec.TracingSpec, nil)
 	err := server.StartNonBlocking()
 	return err
 }
