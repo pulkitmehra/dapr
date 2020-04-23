@@ -65,7 +65,11 @@ const (
 	actorStateStore     = "actorStateStore"
 )
 
-var log = logger.NewLogger("dapr.runtime")
+var (
+	log                  = logger.NewLogger("dapr.runtime")
+	apiServerLogger      = logger.NewLogger("dapr.runtime.grpc.api")
+	internalServerLogger = logger.NewLogger("dapr.runtime.grpc.internal")
+)
 
 // DaprRuntime holds all the core components of the runtime
 type DaprRuntime struct {
@@ -582,7 +586,7 @@ func (a *DaprRuntime) startHTTPServer(port, profilePort int, allowedOrigins stri
 
 func (a *DaprRuntime) startGRPCInternalServer(api grpc.API, port int) error {
 	serverConf := grpc.NewServerConfig(a.runtimeConfig.ID, a.hostAddress, port)
-	server := grpc.NewServer(grpc.InternalServerLogger, func(server *grpc_go.Server) error {
+	server := grpc.NewServer(internalServerLogger, func(server *grpc_go.Server) error {
 		daprinternal_pb.RegisterDaprInternalServer(server, api)
 		return nil
 	}, serverConf, a.globalConfig.Spec.TracingSpec, a.authenticator)
@@ -592,9 +596,9 @@ func (a *DaprRuntime) startGRPCInternalServer(api grpc.API, port int) error {
 
 func (a *DaprRuntime) startGRPCAPIServer(api grpc.API, port int) error {
 	serverConf := grpc.NewServerConfig(a.runtimeConfig.ID, a.hostAddress, port)
-	server := grpc.NewServer(grpc.APIServerLogger, func(server *grpc_go.Server) error {
-		dapr_pb.RegisterDaprServer(server, api)
-		return a.initCustomComponents(server)
+	server := grpc.NewServer(apiServerLogger, func(server *grpc_go.Server) error {
+		dapr_pb.RegisterDaprServer(server, api) // Register the standard API service
+		return a.initCustomComponents(server)   // Also register user-defined custom components
 	}, serverConf, a.globalConfig.Spec.TracingSpec, nil)
 	err := server.StartNonBlocking()
 	return err

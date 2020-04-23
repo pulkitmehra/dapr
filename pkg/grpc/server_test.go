@@ -1,7 +1,6 @@
 package grpc
 
 import (
-	"sync"
 	"testing"
 	"time"
 
@@ -31,13 +30,12 @@ func TestCertRenewal(t *testing.T) {
 
 func TestGetMiddlewareOptions(t *testing.T) {
 	t.Run("should enable two interceptors if tracing and metrics are enabled", func(t *testing.T) {
-		fakeServer := &server{
+		fakeServer := &Server{
 			config: ServerConfig{},
 			tracingSpec: config.TracingSpec{
 				Enabled: true,
 			},
-			renewMutex: &sync.Mutex{},
-			logger:     logger.NewLogger("dapr.runtime.grpc.test"),
+			logger: logger.NewLogger("dapr.runtime.grpc.test"),
 		}
 
 		serverOption := fakeServer.getMiddlewareOptions()
@@ -46,13 +44,12 @@ func TestGetMiddlewareOptions(t *testing.T) {
 	})
 
 	t.Run("should disable middlewares", func(t *testing.T) {
-		fakeServer := &server{
+		fakeServer := &Server{
 			config: ServerConfig{},
 			tracingSpec: config.TracingSpec{
 				Enabled: false,
 			},
-			renewMutex: &sync.Mutex{},
-			logger:     logger.NewLogger("dapr.runtime.grpc.test"),
+			logger: logger.NewLogger("dapr.runtime.grpc.test"),
 		}
 
 		serverOption := fakeServer.getMiddlewareOptions()

@@ -43,12 +43,6 @@ type Server struct {
 // RegisterServerFn is the function to register gRPC services.
 type RegisterServerFn func(server *grpc_go.Server) error
 
-// APIServerLogger is the logger for the API server
-var APIServerLogger = logger.NewLogger("dapr.runtime.grpc.api")
-
-// InternalServerLogger is the logger for the internal server
-var InternalServerLogger = logger.NewLogger("dapr.runtime.grpc.internal")
-
 // NewServer creates a new `Server` which delegates service registration to `register`.
 func NewServer(logger logger.Logger,
 	register RegisterServerFn,
