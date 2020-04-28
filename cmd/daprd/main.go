@@ -311,6 +311,17 @@ func main() {
 				return twilio.NewSMS(logContrib)
 			}),
 		),
+
+		// You can extend Dapr by creating your own Daprd binary by doing following
+		// 1. Create a GO project and copy this "main.go". Use Dapr and Component-contrib as library in the project
+		// 2. Uncomment below code to add your custom feature as GRPC endpoint.
+
+		//runtime.WithCustomComponents(
+		//		customs_loader.New("yourcomponent", func() customs_loader.CustomComponent {
+		//		return yourcomponent.New(logContrib)
+		//	}),
+		//),
+
 		runtime.WithHTTPMiddleware(
 			http_middleware_loader.New("uppercase", func(metadata middleware.Metadata) http_middleware.Middleware {
 				return func(h fasthttp.RequestHandler) fasthttp.RequestHandler {
