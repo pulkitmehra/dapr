@@ -16,13 +16,16 @@ import (
 	diag "github.com/dapr/dapr/pkg/diagnostics"
 	"github.com/dapr/dapr/pkg/logger"
 	auth "github.com/dapr/dapr/pkg/runtime/security"
+	"google.golang.org/grpc"
 	grpc_go "google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 )
 
 const (
-	certWatchInterval         = time.Second * 3
-	renewWhenPercentagePassed = 70
+	certWatchInterval              = time.Second * 3
+	renewWhenPercentagePassed      = 70
+	defaultMaxConnectionAgeSeconds = 30
 )
 
 // Server implements the gRPC transport for a Dapr server.
@@ -38,6 +41,7 @@ type Server struct {
 	signedCert         *auth.SignedCertificate
 	tlsCert            tls.Certificate
 	signedCertDuration time.Duration
+	maxConnectionAge   *time.Duration
 }
 
 // RegisterServerFn is the function to register gRPC services.
@@ -50,12 +54,18 @@ func NewServer(logger logger.Logger,
 	tracingSpec config.TracingSpec,
 	authenticator auth.Authenticator) *Server {
 	return &Server{
-		logger:        logger,
-		register:      register,
-		config:        config,
-		tracingSpec:   tracingSpec,
-		authenticator: authenticator,
+		logger:           logger,
+		register:         register,
+		config:           config,
+		tracingSpec:      tracingSpec,
+		authenticator:    authenticator,
+		maxConnectionAge: getDefaultMaxAgeDuration(),
 	}
+}
+
+func getDefaultMaxAgeDuration() *time.Duration {
+	d := time.Second * defaultMaxConnectionAgeSeconds
+	return &d
 }
 
 // StartNonBlocking starts a new server in a goroutine
@@ -106,13 +116,11 @@ func (s *Server) generateWorkloadCert() error {
 func (s *Server) getMiddlewareOptions() []grpc_go.ServerOption {
 	opts := []grpc_go.ServerOption{}
 
-	if s.tracingSpec.Enabled {
-		s.logger.Infof("enabled tracing grpc middleware")
-		opts = append(
-			opts,
-			grpc_go.StreamInterceptor(diag.TracingGRPCMiddlewareStream(s.tracingSpec)),
-			grpc_go.UnaryInterceptor(diag.TracingGRPCMiddlewareUnary(s.tracingSpec)))
-	}
+	s.logger.Infof("enabled tracing grpc middleware")
+	opts = append(
+		opts,
+		grpc_go.StreamInterceptor(diag.TracingGRPCMiddlewareStream(s.tracingSpec)),
+		grpc_go.UnaryInterceptor(diag.TracingGRPCMiddlewareUnary(s.tracingSpec)))
 
 	s.logger.Infof("enabled metrics grpc middleware")
 	opts = append(opts, grpc_go.StatsHandler(diag.DefaultGRPCMonitoring.ServerStatsHandler))
@@ -122,6 +130,9 @@ func (s *Server) getMiddlewareOptions() []grpc_go.ServerOption {
 
 func (s *Server) getGRPCServer() (*grpc_go.Server, error) {
 	opts := s.getMiddlewareOptions()
+	if s.maxConnectionAge != nil {
+		opts = append(opts, grpc.KeepaliveParams(keepalive.ServerParameters{MaxConnectionAge: *s.maxConnectionAge}))
+	}
 
 	if s.authenticator != nil {
 		err := s.generateWorkloadCert()

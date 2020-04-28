@@ -15,7 +15,7 @@ import (
 
 	diag "github.com/dapr/dapr/pkg/diagnostics"
 	http_middleware "github.com/dapr/dapr/pkg/middleware/http"
-	routing "github.com/qiangxue/fasthttp-routing"
+	routing "github.com/fasthttp/router"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/pprofhandler"
 )
@@ -53,10 +53,7 @@ func (s *server) StartNonBlocking() {
 					s.useRouter())))
 
 	handler = s.useMetrics(handler)
-
-	if s.tracingSpec.Enabled {
-		handler = s.useTracing(handler)
-	}
+	handler = s.useTracing(handler)
 
 	go func() {
 		log.Fatal(fasthttp.ListenAndServe(fmt.Sprintf(":%v", s.config.Port), handler))
@@ -76,14 +73,13 @@ func (s *server) useTracing(next fasthttp.RequestHandler) fasthttp.RequestHandle
 }
 
 func (s *server) useMetrics(next fasthttp.RequestHandler) fasthttp.RequestHandler {
-	log.Infof("enabled metrics http middleware")
 	return diag.DefaultHTTPMonitoring.FastHTTPMiddleware(next)
 }
 
 func (s *server) useRouter() fasthttp.RequestHandler {
 	endpoints := s.api.APIEndpoints()
 	router := s.getRouter(endpoints)
-	return router.HandleRequest
+	return router.Handler
 }
 
 func (s *server) useComponents(next fasthttp.RequestHandler) fasthttp.RequestHandler {
@@ -134,11 +130,10 @@ func (s *server) getRouter(endpoints []Endpoint) *routing.Router {
 	router := routing.New()
 
 	for _, e := range endpoints {
-		methods := strings.Join(e.Methods, ",")
 		path := fmt.Sprintf("/%s/%s", e.Version, e.Route)
-
-		router.To(methods, path, e.Handler)
+		for _, m := range e.Methods {
+			router.Handle(m, path, e.Handler)
+		}
 	}
-
 	return router
 }

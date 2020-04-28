@@ -17,10 +17,10 @@ import (
 	"strings"
 	"testing"
 
+	pb "github.com/dapr/dapr/pkg/proto/dapr/v1"
 	"github.com/dapr/dapr/tests/e2e/utils"
 	kube "github.com/dapr/dapr/tests/platforms/kubernetes"
 	"github.com/dapr/dapr/tests/runner"
-	pb "github.com/dapr/go-sdk/dapr"
 	"github.com/golang/protobuf/ptypes/any"
 	io_prometheus_client "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
@@ -248,7 +248,7 @@ func testGRPCMetrics(t *testing.T, app string, res *http.Response) {
 					}
 
 					if strings.EqualFold(l.GetName(), "grpc_server_method") {
-						if strings.EqualFold(l.GetValue(), "dapr.Dapr/SaveState") {
+						if strings.EqualFold(l.GetValue(), "dapr.proto.dapr.v1.Dapr/SaveState") {
 							foundMethod = true
 
 							// Check value is as expected
