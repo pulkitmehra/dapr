@@ -81,7 +81,8 @@ func (s *Server) StartNonBlocking() error {
 		return err
 	}
 
-	err = s.register(s.srv)
+	s.srv = server
+	err = s.register(server)
 	if err != nil {
 		return err
 	}
