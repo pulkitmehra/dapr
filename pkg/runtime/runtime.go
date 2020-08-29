@@ -32,6 +32,7 @@ import (
 	http_channel "github.com/dapr/dapr/pkg/channel/http"
 	"github.com/dapr/dapr/pkg/components"
 	bindings_loader "github.com/dapr/dapr/pkg/components/bindings"
+	custom_loader "github.com/dapr/dapr/pkg/components/custom"
 	exporter_loader "github.com/dapr/dapr/pkg/components/exporters"
 	http_middleware_loader "github.com/dapr/dapr/pkg/components/middleware/http"
 	pubsub_loader "github.com/dapr/dapr/pkg/components/pubsub"
@@ -49,7 +50,9 @@ import (
 	http_middleware "github.com/dapr/dapr/pkg/middleware/http"
 	"github.com/dapr/dapr/pkg/modes"
 	"github.com/dapr/dapr/pkg/operator/client"
+	daprv1pb "github.com/dapr/dapr/pkg/proto/dapr/v1"
 	daprclientv1pb "github.com/dapr/dapr/pkg/proto/daprclient/v1"
+	internalv1pb "github.com/dapr/dapr/pkg/proto/daprinternal/v1"
 	operatorv1pb "github.com/dapr/dapr/pkg/proto/operator/v1"
 	runtime_pubsub "github.com/dapr/dapr/pkg/runtime/pubsub"
 	"github.com/dapr/dapr/pkg/runtime/security"
@@ -57,6 +60,7 @@ import (
 	"github.com/golang/protobuf/ptypes/any"
 	"github.com/golang/protobuf/ptypes/empty"
 	jsoniter "github.com/json-iterator/go"
+	grpc_go "google.golang.org/grpc"
 )
 
 const (
@@ -65,7 +69,11 @@ const (
 	actorStateStore     = "actorStateStore"
 )
 
-var log = logger.NewLogger("dapr.runtime")
+var (
+	log                  = logger.NewLogger("dapr.runtime")
+	apiServerLogger      = logger.NewLogger("dapr.runtime.grpc.api")
+	internalServerLogger = logger.NewLogger("dapr.runtime.grpc.internal")
+)
 
 // DaprRuntime holds all the core components of the runtime
 type DaprRuntime struct {
@@ -83,9 +91,11 @@ type DaprRuntime struct {
 	stateStores              map[string]state.Store
 	actor                    actors.Actors
 	bindingsRegistry         bindings_loader.Registry
+	customComponentRegistry  custom_loader.Registry
 	inputBindings            map[string]bindings.InputBinding
 	outputBindings           map[string]bindings.OutputBinding
 	secretStores             map[string]secretstores.SecretStore
+	customComponents         map[string]custom_loader.CustomComponent
 	pubSubRegistry           pubsub_loader.Registry
 	pubSub                   pubsub.PubSub
 	servicediscoveryResolver servicediscovery.Resolver
@@ -115,7 +125,9 @@ func NewDaprRuntime(runtimeConfig *Config, globalConfig *config.Configuration) *
 		outputBindings:           map[string]bindings.OutputBinding{},
 		secretStores:             map[string]secretstores.SecretStore{},
 		stateStores:              map[string]state.Store{},
+		customComponents:         map[string]custom_loader.CustomComponent{},
 		stateStoreRegistry:       state_loader.NewRegistry(),
+		customComponentRegistry:  custom_loader.NewRegistry(),
 		bindingsRegistry:         bindings_loader.NewRegistry(),
 		pubSubRegistry:           pubsub_loader.NewRegistry(),
 		secretStoresRegistry:     secretstores_loader.NewRegistry(),
@@ -245,6 +257,9 @@ func (a *DaprRuntime) initRuntime(opts *runtimeOpts) error {
 	a.bindingsRegistry.RegisterOutputBindings(opts.outputBindings...)
 	a.initBindings()
 	a.initDirectMessaging(a.servicediscoveryResolver)
+
+	//Register custom components, initialization is performed by the Grpc Server
+	a.customComponentRegistry.Register(opts.customComponents...)
 
 	err = a.initActors()
 	if err != nil {
@@ -630,14 +645,20 @@ func (a *DaprRuntime) startHTTPServer(port, profilePort int, allowedOrigins stri
 
 func (a *DaprRuntime) startGRPCInternalServer(api grpc.API, port int) error {
 	serverConf := grpc.NewServerConfig(a.runtimeConfig.ID, a.hostAddress, port)
-	server := grpc.NewInternalServer(api, serverConf, a.globalConfig.Spec.TracingSpec, a.authenticator)
+	server := grpc.NewServer(internalServerLogger, func(server *grpc_go.Server) error {
+		internalv1pb.RegisterDaprInternalServer(server, api)
+		return nil
+	}, serverConf, a.globalConfig.Spec.TracingSpec, a.authenticator)
 	err := server.StartNonBlocking()
 	return err
 }
 
 func (a *DaprRuntime) startGRPCAPIServer(api grpc.API, port int) error {
 	serverConf := grpc.NewServerConfig(a.runtimeConfig.ID, a.hostAddress, port)
-	server := grpc.NewAPIServer(api, serverConf, a.globalConfig.Spec.TracingSpec)
+	server := grpc.NewServer(apiServerLogger, func(server *grpc_go.Server) error {
+		daprv1pb.RegisterDaprServer(server, api) // Register the standard API service
+		return a.initCustomComponents(server)    // Also register user-defined custom components
+	}, serverConf, a.globalConfig.Spec.TracingSpec, nil)
 	err := server.StartNonBlocking()
 	return err
 }
@@ -1340,6 +1361,40 @@ func (a *DaprRuntime) initSecretStores() error {
 		diag.DefaultMonitoring.ComponentInitialized(c.Spec.Type)
 	}
 
+	return nil
+}
+
+func (a *DaprRuntime) initCustomComponents(server *grpc_go.Server) error {
+	for _, c := range a.components {
+		if strings.Index(c.Spec.Type, "custom") == 0 {
+			comp, err := a.customComponentRegistry.CreateCustomComponent(c.Spec.Type)
+			if err != nil {
+				return err
+			}
+			if comp == nil {
+				continue
+			}
+			err = comp.Init(custom_loader.Metadata{
+				Properties: a.convertMetadataItemsToProperties(c.Spec.Metadata),
+				Name:       c.GetName(),
+			})
+			if err != nil {
+				log.Errorf("failed to init custom component %s (%s): %s", c.ObjectMeta.Name, c.Spec.Type, err)
+				diag.DefaultMonitoring.ComponentInitFailed(c.Spec.Type, "init")
+				continue
+			}
+			err = comp.RegisterServer(server)
+			if err != nil {
+				log.Errorf("failed to register custom component %s (%s)", c.ObjectMeta.Name, c.Spec.Type)
+				diag.DefaultMonitoring.ComponentInitFailed(c.Spec.Type, "init")
+				return err
+			}
+			log.Infof("successful init and registeration of custom component %s (%s)", c.ObjectMeta.Name, c.Spec.Type)
+
+			a.customComponents[c.ObjectMeta.Name] = comp
+			diag.DefaultMonitoring.ComponentInitialized(c.Spec.Type)
+		}
+	}
 	return nil
 }
 
